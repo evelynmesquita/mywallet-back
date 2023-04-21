@@ -4,6 +4,7 @@ import { MongoClient } from "mongodb"
 import dotenv from "dotenv"
 import joi from 'joi';
 import bcrypt from 'bcrypt';
+import { v4 as uuid } from 'uuid';
 
 const app = express();
 
@@ -25,8 +26,13 @@ const db = mongoClient.db()
 const userRegisterSchema = joi.object({
     name: joi.string().pattern(/^[A-Za-záàâãéèêíïóôõöúçñÁÀÂÃÉÈÍÏÓÔÕÖÚÇÑ ]+$/).required(),
     email: joi.string().email().required(),
-    password: joi.string().min(6).required(),
+    password: joi.string().min(3).required(),
     confirmPassword: joi.any().valid(joi.ref('password')).required()
+})
+
+const userLoginSchema = joi.object({
+    email: joi.string().email().required(),
+    password: joi.string().min(3).required(),
 })
 
 
@@ -56,6 +62,23 @@ app.post("/sign-up", async (req, res) => {
 })
 
 app.post("/", async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        const user = await db.collection('users').findOne({ email });
+        if (!user) return res.status(404).send("Email not registered.")
+
+        const correctPassword = bcrypt.compareSync(password, user.password);
+        if (!correctPassword) return res.status(401).send("Incorrect password.")
+
+        const token = uuid();
+        await db.collection("sessions").insertOne({ token, userID: user._id })
+        res.send(token)
+
+    } catch (error) {
+        console.log(error.message)
+        return res.status(500).send(error.message)
+    }
 
 })
 
