@@ -1,10 +1,11 @@
 import express from "express";
 import cors from "cors"
-import { MongoClient } from "mongodb"
+import { MongoClient, ObjectId } from "mongodb"
 import dotenv from "dotenv"
 import joi from 'joi';
 import bcrypt from 'bcrypt';
-import { v4 as uuid } from 'uuid';
+import { v4 as uuidV4 } from 'uuid'
+import dayjs from 'dayjs'
 
 const app = express();
 
@@ -35,6 +36,11 @@ const userLoginSchema = joi.object({
     password: joi.string().min(3).required(),
 })
 
+const entriesSchema = joi.object({
+    value: joi.number().min(0).required(),
+    description: joi.string().required(),
+    type: joi.string().valid("entry", "exit").required(),
+})
 
 app.post("/sign-up", async (req, res) => {
     const { name, email, password } = req.body;
@@ -61,25 +67,76 @@ app.post("/sign-up", async (req, res) => {
     }
 })
 
-app.post("/", async (req, res) => {
-    const { email, password } = req.body;
+app.post("/sign-in", async (req, res) => {
+    const user = req.body
+    const validateUser = userLoginSchema.validate(user, { abortEarly: false })
+
+    if (validateUser.error) {
+        const erros = validaValue.error.details.map((err) => {
+            return err.message
+        })
+        return res.status(422).send(erros)
+    }
 
     try {
-        const user = await db.collection('users').findOne({ email });
-        if (!user) return res.status(404).send("Email not registered.")
+        const userExist = await db.collection("users").findOne({ email: user.email })
+        console.log(userExist)
+        if (!userExist) return res.status(400).send("Usuário ou senha incorretos")
 
-        const correctPassword = bcrypt.compareSync(password, user.password);
-        if (!correctPassword) return res.status(401).send("Incorrect password.")
+        const matchPassword = bcrypt.compareSync(user.password, userExist.password)
+        if (!matchPassword) return res.status(400).send("Usuário ou senha incorretos")
 
-        const token = uuid();
-        await db.collection("sessions").insertOne({ token, userID: user._id })
-        res.send(token)
+        const token = uuidV4()
+
+        await db.collection("sessions").insertOne({ idUser: userExist._id, token, user: userExist.name })
+        const resp = await db.collection("sessions").findOne({ token })
+        return res.send(resp)
 
     } catch (error) {
         console.log(error.message)
         return res.status(500).send(error.message)
     }
+})
 
+app.get("/wallet", async (req, res) => {
+    const { authorization } = req.headers
+    const token = authorization?.replace("Bearer ", "")
+    if (!token) return res.status(422).send("Informe o token!")
+
+    const checkSession = await db.collection("sessions").findOne({ token })
+    try {
+        const userWallet = await db.collection("wallet").find({ userId: checkSession.idUser }).toArray()
+        return res.send(userWallet)
+    } catch (error) {
+        return res.status(500).send(error.message)
+    }
+})
+
+app.post("/newValueWallet", async (req, res) => {
+    const newValue = req.body
+    const { authorization } = req.headers
+    const validaValue = entriesSchema.validate(newValue, { abortEarly: false })
+
+    if (validaValue.error) {
+        const erros = validaValue.error.details.map((err) => {
+            return err.message
+        })
+        return res.status(422).send(erros)
+    }
+
+    const token = authorization?.replace("Bearer ", "")
+    if (!token) return res.status(422).send("Informe o token!")
+
+    try {
+        const checkSession = await db.collection("sessions").findOne({ token })
+        if (!checkSession) return res.status(401).send("Você não tem autorização para cadastrar um novo valor na carteira")
+        console.log(checkSession)
+        console.log(checkSession.idUser)
+        await db.collection("wallet").insertOne({ value: newValue.value, description: newValue.description, type: newValue.type, date: dayjs().format("DD/MM"), userId: checkSession.idUser })
+        return res.send("ok")
+    } catch (error) {
+        return res.sendStatus(500)
+    }
 })
 
 
