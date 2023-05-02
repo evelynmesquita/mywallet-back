@@ -23,7 +23,7 @@ Here are the technologies used in this project.
 ## Getting started
 
 * Clone the repository to your local machine:.
-  - git clone https://github.com/evelynmesquita/mywallet-front.git
+  - git clone https://github.com/evelynmesquita/mywallet-back.git
   
 * Install the dependencies:
   - npm install
